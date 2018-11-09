@@ -1,0 +1,129 @@
+#lang racket
+;Load the required dependencies.
+
+(require data-science-master)
+
+(require net/url)
+
+(require plot)
+
+(require math)
+
+(require json)
+
+
+;Access the data set from the Twitter API
+
+;Generate a bearer_token to access the Twitter API. Define it.
+
+(define bearer_token  "AAAAAAAAAAAAAAAAAAAAAH938wAAAAAAzdd9nJJlVE%2BBc1dFLty3vVVx7Sg%3DE4MSdYIbMnrG6GYWoJaEUOTMsREwehmWZZ9RX0yCZpcYdjF0Jo")
+
+
+;Search countries by their GPS coordinates. In this case we shall zoom in to the East African Region.
+
+(define countries (list (cons "BI" "-3.373056,29.918886") (cons "RW" "-1.943706,29.880578") (cons "KE" "-0.023559,37.906193") (cons "TZ" "-6.369028,34.888822") (cons "UG" "1.373333,32.290275")))
+
+(define (getgeocode country_code) 
+ (define (search-countries ccode clist)
+(cond 
+((null? clist) "country code not found")
+(else
+(if
+(eq? ccode (car (car clist)))
+(car clist)
+(search-countries ccode (cdr clist)) )) ))
+(search-countries country_code countries))
+
+(define (buildgeocodeparam geocode) 
+    (string-append (cdr geocode) ",200mi"))
+
+
+;Zero in on Uganda and obtain twitter data.
+
+
+(define authHeader (string-append "Authorization: Bearer " bearer_token))
+(define geocodeParam (string-append "geocode" "=" (buildgeocodeparam (getgeocode "UG"))))
+(define countParam (string-append "count" "=" "200"))
+(define tweetmodeParam (string-append "tweet_mode" "=" "extended"))
+(define apiUrl 
+    (string-append 
+        "https://api.twitter.com/1.1/search/tweets.json" 
+        "?" geocodeParam 
+        "&" countParam
+        "&" tweetmodeParam
+    ) 
+)
+(define destUrl (string->url apiUrl))
+(define twitterApiRequest (get-pure-port destUrl (list authHeader)))
+(define resjson (port->string  twitterApiRequest))
+(close-input-port twitterApiRequest)
+
+
+;Redirect the data to a hash table and obtain tweet text using the procedure, hash-ref
+
+(define resobj (string->jsexpr resjson))
+(define statuses (hash-ref resobj 'statuses))
+
+
+;Append the data obtained into one large string 
+
+(define 
+(buildbigstring statuses)
+(let 
+(
+(bigstring "")
+ )
+(define (scan-statuses sub_statuses)
+(cond 
+((null? sub_statuses) bigstring)
+(else
+(begin
+(set! bigstring (string-append bigstring (hash-ref (car sub_statuses) 'full_text)))
+ (scan-statuses (cdr sub_statuses)) ) ) )
+  )
+ (scan-statuses statuses)  ))
+
+(define statusstring (buildbigstring statuses))
+
+;Use that large string for sentiment analysis
+
+(define tokens (document->tokens statusstring #:sort? #t))
+(define sentiments-raw (list->sentiment tokens #:lexicon 'nrc))
+(define sentiments-agg (aggregate sum ($ sentiments-raw 'sentiment) ($ sentiments-raw 'freq)))
+(display sentiments-agg)
+
+(newline)
+
+;Plot the moods of tweets on a histogram
+(let ([counts (aggregate sum ($ sentiments-raw 'sentiment) ($ sentiments-raw 'freq))])
+  (parameterize ((plot-width 500))
+    (plot (list
+	   (tick-grid)
+	   (discrete-histogram
+	    (sort counts (λ (x y) (> (second x) (second y))))
+	    #:color "LightSeaGreen"
+	    #:line-color "LightSeaGreen"))
+	  #:x-label "Affective Label"
+
+	  #:y-label "Frequency")))
+(newline)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
